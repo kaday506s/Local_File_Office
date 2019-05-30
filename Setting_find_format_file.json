@@ -1,0 +1,18 @@
+[
+  {
+    "name_process": "WINWORD.EXE",
+    "work": true,
+    "file_format_find": ["docx", "docm", "doc"]
+  },
+  {
+    "name_process": "EXCEL.EXE",
+    "work": true,
+    "file_format_find": ["xlsx", "xlsm", "xltx"]
+  },
+  {
+    "name_process": "POWERPNT.EXE",
+    "work": true,
+    "file_format_find": ["pptx", "pptm", "potx", "sldx", "ppsx"]
+  }
+
+]
