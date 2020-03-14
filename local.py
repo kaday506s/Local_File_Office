@@ -1,87 +1,73 @@
 # -*- coding: utf-8 -*-
 # Автор Михаил Кадай
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 try:
-    import wmi  # Библиотека для получения запущенных процессов в WINDOWS
-except:
-    # если WMI Не установлен
-    print("- WMI Не установлен!")
-    pass
+    import wmi
+except ImportError:
+    raise Exception("- WMI Не установлен!")
 try:
-    from psutil import Process  # Библиотека для получения запущенных файлов определённым процессом
-except:
-    # если psutil Не установлен - установиться автоматически
-    print("- psutil Не установлен!")
-    pass
-# Работа со строками
-import re
-import os
-# Библиотека для работы с аргументами при запуске программы
-import argparse
-# Прослушка клавиатуры для прекращения работы скрипта
+    from psutil import Process
+except ImportError:
+    raise Exception("- psutil Не установлен!")
 try:
     from pynput.keyboard import Key, Listener
-except:
-    # если pynput Не установлен - установиться автоматически
-    print("- pynput Не установлен!")
+except ImportError:
+    raise Exception("- pynput Не установлен!")
+
 from sys import exit
-# Работы со временем
-import datetime
-# Библиотека для работы с json фаылами
+from datetime import datetime
 from json import load, dumps
-# Время сна скрипта в цикле
 from time import sleep
+from os import stat as os_stat
+import argparse
 
 
 class App:
+    wmi_sql_select_process = "SELECT * FROM Win32_Process where Name = '{}'"
+
     def __init__(self, ):
-        # открытие файла Json
+        # открытие файла Json для чтения настроек
         with open("Setting_find_format_file.json") as setting:
             self.data_work = load(setting, encoding="utf-8")
-        setting.close()
+
         self.result = []
         self.exit = 0
 
-        print("Мониторинг открытых файлов в Microsoft Office Верчия скрипта 1.1.3 \n")
+        print(f" * Мониторинг открытых файлов в "
+              f"Microsoft Office Верчия скрипта {__version__} \n")
+
         # Парсинг Аргументов
         parser = argparse.ArgumentParser(description='HELP')
-        parser.add_argument('-P', '--print', action='store_true', help='Печать результата работы в консоль')
-        parser.add_argument('-S', '--save', action='store_true',  help='Сохранить результат в файл JSON')
-        parser.add_argument('-V', '--version', action='store_true',  help='Версия скрипта')
-        parser.add_argument('-T', '--time', type=int, default=10,
+
+        parser.add_argument('-P', '--print',
+                            action='store_true',
+                            help='Печать результата работы в консоль')
+        parser.add_argument('-S', '--save',
+                            action='store_true',
+                            help='Сохранить результат в файл JSON')
+        parser.add_argument('-T', '--time',
+                            type=int,
+                            default=10,
                             help='ONLY INT VALUE - Время мониторинга (def-10s)')
-        parser.add_argument('-Start', '--start', action='store_true', help='Начать работу скрипта')
+        parser.add_argument('-Start', '--start',
+                            action='store_true',
+                            help='Начать работу скрипта')
         args = parser.parse_args()
 
-        # Если параметры не заданы
-        pars = 0
-        for _, value in args._get_kwargs():
-            if value is False:
-                pars += 1
-            if pars == 4:
-                print('Ппожалуйста выполните следующую команду: python local.py -h')
-        # печать версии скрипта при заданном параметре -V/--version
-        if args.version:
-            print("Версия Скрипта: "+__version__)
-        # Если задан аргумент сохранения
-        if args.save:
-            self.data_save = True
-        else:
-            self.data_save = False
-        # Параметр для переодичности выполненния скрипта в секундах DEFAULT - 10 sec
-        if args.time:
-            self.time = args.time
-        # Если задан аргумент печати в консоль
-        if args.print:
-            self.print = True
-        else:
-            self.print = False
+        args_if_false = [value for _, value in args._get_kwargs() if value is False]
+        if len(args_if_false) == 3:
+            print('* Ппожалуйста выполните следующую команду: python local.py -h')
+
+        self.data_save = args.save
+        self.time = args.time
+        self.print = args.print
+
         # старт программы
         if args.start:
             with Listener(on_release=self.on_release) as self.listener:
                 self.listener.join(self.start())
 
-    # Выход с програмы по средствам нажатия ESC
+    # Выход по нажатию ESC
     def on_release(self, key):
         if key == Key.esc:
             print('Выход из скрипта')
@@ -95,65 +81,75 @@ class App:
                 exit(0)
             sleep(1)
 
+    @classmethod
+    def print_result(cls, result_data):
+        print('* ------------------------------------------ *')
+        for res in result_data:
+            print(f"* Рабочий процесс : {res['name_process']}\n"
+                  f"* Время замера : {res['working_time']}\n"
+                  f"* Открытые Файлы: ")
+            for file in res["data"]:
+                print(f'   -- ФАЙЛ -{file["File"]}  '
+                      f' -- Последние изменения Файла '
+                      f' - {file["Last_Mod"]}')
+
+    @classmethod
+    def save_result_in_json(cls, result_data):
+        with open("result.json", "w") as file_save:
+            file_save.write(dumps(result_data, ensure_ascii=False))
+
     # сама програма ;)
     def start(self):
         while True:
-            if self.exit == 1:
-                exit(0)
             for process in self.data_work:
-                # Запрос через WMI для получения открытых процесов указанных в файле Setting_find_format_file.json
+                # Запрос через WMI для получения открытых процессов
+                # указанных в файле Setting_find_format_file.json
                 if process["work"] is True:
-                    for Win32_Process in wmi.WMI().query("SELECT * FROM Win32_Process where Name = '"+process['name_process']+"'"):
-                        # Проверка запущен ли процесс
-                        if len(str(Win32_Process)) > 0:
-                            # Дата для сохранения процесса в результат выполнения программы
-
+                    for Win32_Process in wmi.WMI().query(
+                         self.wmi_sql_select_process.format(process['name_process'])):
+                        if Win32_Process:
                             data_save = {
-                                "name_process": process['name_process'],  # Имя процесса
-                                "working_time": str(re.split(r"[.]", str(datetime.datetime.now()))[0]),  # Время
-                                "file_opens": [],                         # Открытые файлы процессом
+                                "name_process": process['name_process'],
+                                "working_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "files_opens": [],
                                 "data": []
                             }
-                            # Поиск открытых файлов процессом
-                            opens_file_in_process = Process(pid=int(Win32_Process.ProcessId)).open_files()
+                            # Поиск открытых файлов id процессом
+                            opens_file_in_process = Process(pid=int(Win32_Process.ProcessId))\
+                                .open_files()
+
                             for file in opens_file_in_process:
                                 [
-                                    data_save["file_opens"].append(str(file.path))
+                                    data_save["files_opens"].append(
+                                        file.path
+                                    )
                                     for x in process['file_format_find']
-                                    if x in str(file.path)
-                                    and file.path not in data_save["file_opens"]
-                                    and "~$" not in str(file.path)
+                                    if file.path.endswith(x)
+                                    and file.path not in data_save["files_opens"]
+                                    and "~$" not in file.path
                                 ]
-                            for i in data_save["file_opens"]:
+                            # ToDo change
+                            for file in data_save["files_opens"]:
                                 data_save["data"].append(
-                                    {"Last_Mod": str(re.split(r"[.]",
-                                                 str(datetime.datetime.fromtimestamp(os.stat(i).st_mtime)))[0]),
-                                     "File": i})
-                            # сохранение результатов
+                                    {"Last_Mod": datetime
+                                        .fromtimestamp(os_stat(file).st_mtime)
+                                        .strftime("%Y-%m-%d %H:%M"),
+                                     "File": file})
+
                             self.result.append(data_save)
+
             # Аргумент для печати в консоль
-            if self.print is True:
-                print('* ------------------------------------------ *')
-                for i in self.result:
+            if self.print:
+                self.print_result(self.result)
 
-                    print("* Рабочий процесс : "+str(i['name_process']))
-                    print("* Время замера : "+str(i['working_time']))
-                    print("* Открытые Файлы: ")
-                    for file in i["data"]:
-                        print('   -- ФАЙЛ -'+str(file["File"])+" -- Последние изменения Файла - "+str(file["Last_Mod"]))
-                    print("\n")
+            # Аргумент сохранения информации
+            if self.data_save:
+                self.save_result_in_json(self.result)
 
-            # Аргумент сохранения информации - результат работы
-            if self.data_save is True:
-                with open("result.json", "w") as file_save:
-                    file_save.write(dumps(self.result, ensure_ascii=False))
-                file_save.close()
             # Обнуление результатов
             self.result = []
-            # sleep(self.time)
             self.sleep_time()
 
 
-# Запуск Программы
 if __name__ == "__main__":
     App()
